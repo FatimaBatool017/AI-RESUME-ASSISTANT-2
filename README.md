@@ -43,7 +43,7 @@ streamlit run app.py
 | Setting | Where | Default |
 |---|---|---|
 | `GEMINI_API_KEY` | Streamlit secrets / env var / sidebar | none |
-| `GEMINI_MODEL` | env var or sidebar field | `gemini-2.5-flash` |
+| `GEMINI_MODEL` | env var or sidebar field | `gemini-3.8-flash` |
 
 ## Notes
 - Scanned (image-only) PDFs have no extractable text; use a text-based PDF or DOCX.
