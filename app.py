@@ -12,7 +12,7 @@ from google.genai import types
 from pypdf import PdfReader
 
 # ---------- Config ----------
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 MAX_CHARS = 20000  # cap resume text sent to the model
 
 st.set_page_config(page_title="ATS Resume Checker", page_icon="📄", layout="wide")
