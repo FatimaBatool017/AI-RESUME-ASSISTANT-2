@@ -4,11 +4,12 @@ import io
 import json
 import os
 import re
+import time
 
 import streamlit as st
 from docx import Document
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pypdf import PdfReader
 
 # ---------- Config ----------
@@ -134,16 +135,45 @@ def normalize(result: dict) -> dict:
     }
 
 
-def analyze_resume(api_key: str, model: str, resume_text: str, job_description: str) -> dict:
+RETRY_CODES = {429, 500, 503, 504}
+MAX_ATTEMPTS = 5
+
+
+def call_model(client, model: str, prompt: str, status=None):
+    """Call Gemini, retrying temporary errors (503/429/...) with exponential backoff."""
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            return client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                ),
+            )
+        except errors.APIError as e:
+            if getattr(e, "code", None) in RETRY_CODES and attempt < MAX_ATTEMPTS:
+                wait = min(2 ** attempt, 20)  # 2, 4, 8, 16 seconds
+                if status is not None:
+                    status.write(f"{model} is busy (error {e.code}). Retrying in {wait}s... ({attempt}/{MAX_ATTEMPTS - 1})")
+                time.sleep(wait)
+                continue
+            raise
+
+
+def analyze_resume(api_key: str, model: str, resume_text: str, job_description: str,
+                   fallback_model: str = "", status=None) -> dict:
     client = genai.Client(api_key=api_key)
-    response = client.models.generate_content(
-        model=model,
-        contents=build_prompt(resume_text, job_description),
-        config=types.GenerateContentConfig(
-            temperature=0.2,
-            response_mime_type="application/json",
-        ),
-    )
+    prompt = build_prompt(resume_text, job_description)
+    try:
+        response = call_model(client, model, prompt, status)
+    except errors.APIError as e:
+        if fallback_model and fallback_model != model and getattr(e, "code", None) in RETRY_CODES:
+            if status is not None:
+                status.write(f"Switching to fallback model {fallback_model}...")
+            response = call_model(client, fallback_model, prompt, status)
+        else:
+            raise
     return normalize(parse_json_response(response.text))
 
 
@@ -185,6 +215,11 @@ with st.sidebar:
         help="Leave empty if the key is set in Streamlit secrets or the GEMINI_API_KEY env variable.",
     )
     model_name = st.text_input("Model", value=os.getenv("GEMINI_MODEL", DEFAULT_MODEL))
+    fallback_model = st.text_input(
+        "Fallback model (optional)",
+        value=os.getenv("GEMINI_FALLBACK_MODEL", ""),
+        help="Used automatically if the main model stays overloaded after several retries.",
+    )
     st.markdown("Get a free key at [Google AI Studio](https://aistudio.google.com/apikey).")
     st.info("Your resume is sent to Google's Gemini API for analysis and is not stored by this app.")
 
@@ -219,8 +254,11 @@ if st.button("Analyze resume", type="primary", disabled=uploaded is None):
         st.stop()
 
     try:
-        with st.spinner("Analyzing with Gemini..."):
-            st.session_state["result"] = analyze_resume(api_key, model_name.strip(), text, job_desc)
+        with st.status("Analyzing with Gemini...", expanded=True) as status:
+            st.session_state["result"] = analyze_resume(
+                api_key, model_name.strip(), text, job_desc, fallback_model.strip(), status
+            )
+            status.update(label="Analysis complete", state="complete", expanded=False)
     except json.JSONDecodeError:
         st.error("The AI returned an unreadable response. Please try again.")
         st.stop()
