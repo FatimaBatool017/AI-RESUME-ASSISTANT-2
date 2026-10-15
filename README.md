@@ -44,8 +44,10 @@ streamlit run app.py
 |---|---|---|
 | `GEMINI_API_KEY` | Streamlit secrets / env var / sidebar | none |
 | `GEMINI_MODEL` | env var or sidebar field | `gemini-3.8-flash` |
+| `GEMINI_FALLBACK_MODEL` | env var or sidebar field (optional) | none |
 
 ## Notes
+- Temporary Gemini errors (503 overloaded, 429 rate limit) are retried automatically with backoff (up to 5 attempts), then the optional fallback model is tried.
 - Scanned (image-only) PDFs have no extractable text; use a text-based PDF or DOCX.
 - The ATS score is an AI estimate, not the output of a real ATS. Use it as guidance.
 - Never commit your API key. `.gitignore` already excludes `.streamlit/secrets.toml` and `.env`.
